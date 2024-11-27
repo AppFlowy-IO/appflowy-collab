@@ -1,18 +1,3 @@
-use anyhow::anyhow;
-use collab::core::collab::DataSource;
-use collab::core::origin::CollabOrigin;
-use collab::entity::EncodedCollab;
-use collab::preclude::block::ClientID;
-use collab::preclude::*;
-use collab_entity::define::DOCUMENT_ROOT;
-use collab_entity::CollabType;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::borrow::{Borrow, BorrowMut};
-use std::collections::HashMap;
-use std::ops::{Deref, DerefMut};
-use std::vec;
-
 use crate::blocks::{
   deserialize_text_delta, parse_event, Block, BlockAction, BlockActionPayload, BlockActionType,
   BlockEvent, BlockOperation, ChildrenOperation, DocumentData, DocumentMeta, TextDelta,
@@ -21,6 +6,21 @@ use crate::blocks::{
 use crate::document_awareness::DocumentAwarenessState;
 use crate::error::DocumentError;
 use crate::importer::define::BlockType;
+use anyhow::anyhow;
+use collab::core::collab::{DataSource, DATA_SECTION};
+use collab::core::origin::CollabOrigin;
+use collab::entity::EncodedCollab;
+use collab::preclude::block::ClientID;
+use collab::preclude::*;
+use collab_entity::define::DOCUMENT_ROOT;
+use collab_entity::schema::Schema;
+use collab_entity::CollabType;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use std::borrow::{Borrow, BorrowMut};
+use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
+use std::vec;
 
 /// The page_id is a reference that points to the block’s id.
 /// The block that is referenced by this page_id is the first block of the document.
@@ -475,6 +475,22 @@ impl TryFrom<Collab> for Document {
   }
 }
 
+impl Schema for Document {
+  fn schema() -> JsonValue {
+    json!({
+      "data": {
+        "document": {
+          "blocks": {},
+          "meta": {
+            "children_map": {},
+            "text_map": {}
+          },
+        }
+      }
+    })
+  }
+}
+
 pub struct DocumentBody {
   pub root: MapRef,
   pub children_operation: ChildrenOperation,
@@ -492,16 +508,22 @@ impl DocumentBody {
     data: Option<DocumentData>,
   ) -> Result<Self, DocumentError> {
     let mut txn = collab.context.transact_mut();
-    // { document: {:} }
-    let root = collab.data.get_or_init_map(&mut txn, DOCUMENT_ROOT);
-    // { document: { blocks: {:} } }
-    let blocks = root.get_or_init_map(&mut txn, BLOCKS);
-    // { document: { blocks: {:}, meta: {:} } }
-    let meta = root.get_or_init_map(&mut txn, META);
-    // {document: { blocks: {:}, meta: { children_map: {:} } }
-    let children_map = meta.get_or_init_map(&mut txn, CHILDREN_MAP);
-    // { document: { blocks: {:}, meta: { text_map: {:} } }
-    let text_map = meta.get_or_init_map(&mut txn, TEXT_MAP);
+
+    Document::init_schema(&mut txn);
+
+    let root: MapRef = collab.data.get_with_txn(&txn, DOCUMENT_ROOT).unwrap();
+    let children_map: MapRef = collab
+      .data
+      .get_with_path(&txn, [DOCUMENT_ROOT, META, CHILDREN_MAP])
+      .unwrap();
+    let text_map: MapRef = collab
+      .data
+      .get_with_path(&txn, [DOCUMENT_ROOT, META, TEXT_MAP])
+      .unwrap();
+    let blocks: MapRef = collab
+      .data
+      .get_with_path(&txn, [DOCUMENT_ROOT, BLOCKS])
+      .unwrap();
 
     let children_operation = ChildrenOperation::new(children_map);
     let text_operation = TextOperation::new(text_map);
