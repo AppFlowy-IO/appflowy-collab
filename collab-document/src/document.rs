@@ -410,15 +410,9 @@ impl Document {
 
   /// Get the plain text of the document.
   /// If new_line_each_paragraph is true, it will add a newline between each paragraph.
-  pub fn to_plain_text(
-    &self,
-    new_line_each_paragraph: bool,
-    empty_space_each_delta: bool,
-  ) -> Result<String, DocumentError> {
+  pub fn paragraphs(&self) -> Vec<String> {
     let txn = self.collab.transact();
-    self
-      .body
-      .to_plain_text(txn, new_line_each_paragraph, empty_space_each_delta)
+    self.body.paragraphs(txn)
   }
 }
 
@@ -600,21 +594,14 @@ impl DocumentBody {
     }
   }
 
-  /// Get the plain text of the document.
-  /// If new_line_each_paragraph is true, it will add a newline between each paragraph.
-  pub fn to_plain_text<T: ReadTxn>(
-    &self,
-    txn: T,
-    new_line_each_paragraph: bool,
-    empty_space_each_delta: bool,
-  ) -> Result<String, DocumentError> {
-    let mut buf = String::new();
-    let page_id = self
-      .root
-      .get(&txn, PAGE_ID)
-      .and_then(|v| v.cast::<String>().ok())
-      .ok_or(DocumentError::PageIdIsEmpty)?;
+  pub fn paragraphs<T: ReadTxn>(&self, txn: T) -> Vec<String> {
+    let page_id: String = match self.root.get(&txn, PAGE_ID).map(|v| v.cast::<String>()) {
+      Some(Ok(page_id)) => page_id,
+      _ => return Vec::new(),
+    };
 
+    let mut paragraphs = Vec::new();
+    let mut current_paragraph = String::new();
     let mut text_map = self.text_operation.all_text_delta(&txn);
     let blocks = self.block_operation.get_all_blocks(&txn);
     let children_map = self.children_operation.get_all_children(&txn);
@@ -624,15 +611,15 @@ impl DocumentBody {
     while let Some(block_id) = stack.pop() {
       if let Some(block) = blocks.get(block_id) {
         if let Some(deltas) = get_delta_from_block_data(block) {
-          push_deltas_to_str(&mut buf, deltas, empty_space_each_delta);
+          push_deltas_to_str(&mut current_paragraph, deltas);
         } else if let Some(deltas) = get_delta_from_external_text_id(block, &mut text_map) {
-          push_deltas_to_str(&mut buf, deltas, empty_space_each_delta);
+          push_deltas_to_str(&mut current_paragraph, deltas);
         }
 
         if let Some(children) = children_map.get(&block.children) {
           // if the children is not empty or the stack is not empty, add a newline to separate the blocks
-          if new_line_each_paragraph && (!children.is_empty() || !stack.is_empty()) {
-            buf.push('\n');
+          if !current_paragraph.is_empty() && (!children.is_empty() || !stack.is_empty()) {
+            paragraphs.push(std::mem::take(&mut current_paragraph));
           }
 
           // we want to process children blocks in the same order they are given in children_map
@@ -642,7 +629,12 @@ impl DocumentBody {
         }
       }
     }
-    Ok(buf)
+
+    if !current_paragraph.is_empty() {
+      paragraphs.push(current_paragraph);
+    }
+
+    paragraphs
   }
 
   fn insert_block(

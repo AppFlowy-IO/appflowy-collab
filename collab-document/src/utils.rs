@@ -2,18 +2,31 @@ use crate::blocks::{Block, TextDelta};
 use std::collections::HashMap;
 
 #[inline]
-pub(crate) fn push_deltas_to_str(
-  buf: &mut String,
-  deltas: Vec<TextDelta>,
-  empty_space_each_delta: bool,
-) {
+pub(crate) fn push_deltas_to_str(buf: &mut String, deltas: Vec<TextDelta>) {
   for delta in deltas {
     if let TextDelta::Inserted(text, _) = delta {
-      let trimmed = text.trim();
-      if !trimmed.is_empty() {
-        buf.push_str(trimmed);
-
-        if empty_space_each_delta {
+      // trim all whitespace characters from start and end of the text
+      let mut start = 0;
+      let mut end = 0;
+      let mut i = 0;
+      for c in text.chars() {
+        i += c.len_utf8();
+        if char::is_whitespace(c) {
+          if end == 0 {
+            start += c.len_utf8();
+          }
+        } else {
+          end = i;
+        }
+      }
+      if start < end {
+        if start > 0 {
+          // if there were any whitespaces at the start, add a space before the text
+          buf.push(' ');
+        }
+        buf.push_str(&text[start..end]);
+        if end < text.len() {
+          // if there were any whitespaces at the end, add a space after the text
           buf.push(' ');
         }
       }

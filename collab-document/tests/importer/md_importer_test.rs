@@ -15,7 +15,7 @@ fn test_override_document() {
   let doc_id = gen_document_id();
   let doc = Document::create(&doc_id, doc_data_1).unwrap();
   {
-    let plain_txt = doc.to_plain_text(false, false).unwrap();
+    let plain_txt = doc.paragraphs().join("");
     assert_eq!(markdown_1, plain_txt);
   }
 
@@ -29,7 +29,7 @@ fn test_override_document() {
   }
   {
     let modified_doc = Document::open(collab).unwrap();
-    let plain_txt = modified_doc.to_plain_text(false, false).unwrap();
+    let plain_txt = modified_doc.paragraphs().join("");
     assert_eq!(markdown_2, plain_txt);
   }
 }

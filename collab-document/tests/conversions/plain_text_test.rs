@@ -20,9 +20,8 @@ fn plain_text_1_test() {
   ];
   insert_paragraphs(&mut document, paragraphs.clone());
 
-  let plain_text = document.to_plain_text(true, false).unwrap();
+  let splitted = document.paragraphs();
   // remove the empty lines at the beginning and the end
-  let splitted = plain_text.trim().split('\n').collect::<Vec<&str>>();
   // the first one and the last one are empty
   assert_eq!(splitted.len(), 8);
 
