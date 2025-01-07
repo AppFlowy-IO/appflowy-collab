@@ -54,6 +54,7 @@ impl AsRef<str> for UserId {
 const VIEWS: &str = "views";
 const PARENT_CHILD_VIEW_RELATION: &str = "relation";
 const CURRENT_VIEW: &str = "current_view";
+const CURRENT_VIEW_FOR_USER: &str = "current_view_for_user";
 
 pub(crate) const FAVORITES_V1: &str = "favorites";
 const SECTION: &str = "section";
@@ -546,7 +547,10 @@ impl FolderBody {
       }
 
       meta.insert(&mut txn, FOLDER_WORKSPACE_ID, workspace_id);
-      meta.insert(&mut txn, CURRENT_VIEW, folder_data.current_view);
+      // For compatibility with older collab library which doesn't use CURRENT_VIEW_FOR_USER.
+      meta.insert(&mut txn, CURRENT_VIEW, folder_data.current_view.clone());
+      let current_view_for_user = meta.get_or_init_map(&mut txn, CURRENT_VIEW_FOR_USER);
+      current_view_for_user.insert(&mut txn, uid.as_ref(), folder_data.current_view.clone());
 
       if let Some(fav_section) = section.section_op(&txn, Section::Favorite) {
         for (uid, sections) in folder_data.favorites {
@@ -733,11 +737,22 @@ impl FolderBody {
   }
 
   pub fn get_current_view<T: ReadTxn>(&self, txn: &T) -> Option<String> {
-    self.meta.get_with_txn(txn, CURRENT_VIEW)
+    // Fallback to CURRENT_VIEW if CURRENT_VIEW_FOR_USER is not present, or if the section
+    // does not contain entry for the user. This could happen if a workspace member is using
+    // updated version AppFlowy Collab, while another member is using an older version.
+    self
+      .meta
+      .get(txn, CURRENT_VIEW_FOR_USER)
+      .and_then(|v| match v {
+        YrsValue::YMap(map) => map.get_with_txn(txn, self.uid.as_ref()),
+        _ => None,
+      })
+      .or(self.meta.get_with_txn(txn, CURRENT_VIEW))
   }
 
   pub fn set_current_view(&self, txn: &mut TransactionMut, view: String) {
-    self.meta.try_update(txn, CURRENT_VIEW, view);
+    let current_view_for_user = self.meta.get_or_init_map(txn, CURRENT_VIEW_FOR_USER);
+    current_view_for_user.try_update(txn, self.uid.0.clone(), view);
   }
 }
 
